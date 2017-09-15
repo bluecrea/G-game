@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>G-game</title>
+  </head>
+  <style media="screen">
+  .offline {
+    transition: -webkit-filter 1.5s cubic-bezier(0.65, 0.05, 0.36, 1),
+    background-color 1.5s cubic-bezier(0.65, 0.05, 0.36, 1);
+    will-change: -webkit-filter, background-color;
+  }
+  .offline.inverted {
+    -webkit-filter: invert(100%);
+    background-color: #000;
+  }
+  </style>
+  <body>
+    <div id="game" class="offline" style="background-color:#fff;">
+    </div>
+    <img src="image/image.png" id="img" style="display:none" />
+  </body>
+  <script type="text/javascript">
+
+  var canvas = document.createElement('canvas');
+  var a = document.getElementById('game');
+  canvas.id = 'cv';
+  canvas.width = 600;
+  canvas.height = 300;
+  a.appendChild(canvas);
+
+  var canvas = document.getElementById('cv');
+  var canvasCtx  = canvas.getContext('2d');
+  var spriteDefinition = {
+    CACTUS_LARGE:{x: 332, y: 2},  //大仙人掌 🌵
+    CACTUS_SMALL:{x: 228, y: 2},  //小仙人掌 🌵
+    CLOUD: {x: 86, y: 2},         //云 ⛅️
+    HORIZON: {x: 2, y: 54},       //地面
+    MOON: {x: 484, y: 2},         //月亮 🌛
+    PTERODACTYL: {x: 134, y: 2},    //翼龙
+    RESTRAT: {x: 2, y: 2},          //重新开始按钮
+    TEXT_SPRITE: {x: 655, y: 2} ,   //分数
+    TREX:{x: 848, y: 2},            //霸王龙
+    STAR:{x: 645, y: 2},            //星星
+  };
+  var FPS = 60;
+  var gameFrame = 0;
+  var DEFAULT_WIDTH = 600;
+  var c = document.getElementById('cv');
+  var canvasCtx = c.getContext('2d');
+  var imgSprite = document.getElementById('img')
+
+  /*********
+  * 五个构造函数：
+  * 1、游戏逻辑管理函数 Runner
+  * 2、背景管理函数 Horizon
+  *    a.地面 HorizonLine
+  *    b.云朵 cloud
+  *    c.昼夜交替 NightMode
+  *    d.障碍物 Obstacle
+  * 3、恐龙函数 Trex
+  * 4、分数记录函数 DistanceMeter
+  * 5、游戏结束操作面板函数 GameOverPanel
+  ************/
+
+  //***************************************************************************
+  // HorizonLine
+
+  // 地面的绘制
+    HorizonLine.dimensions = {
+      WIDTH:600,	//宽600
+      HEIGHT:12,	//高12像素
+      YPOS:127	//在画布中的位置
+    };
+
+    /**
+    * canvas 地面将绘制在此画布上
+    * spritePos 地面在雪碧图中的坐标
+    */
+    function HorizonLine(canvas, spritePos) {
+      this.spritePos = spritePos;
+      this.canvas = canvas;
+      this.canvasCtx = canvas.getContext('2d');
+      // this.sourceDimensions = {};
+      this.dimensions = HorizonLine.dimensions;
+      // 在雪碧图中坐标为2和602处分别为不同的地形
+      this.sourceXPos = [this.spritePos.x,this.spritePos.x + this.dimensions.WIDTH];
+      this.xPos = []; // 地面在画布的x坐标
+      this.yPos = 0;  // 地面在画布的y坐标
+      this.bumpThreshold = 0.5 // 随机地形系数
+
+      this.setSourceDimensions()
+      this.draw()
+    }
+
+    // HorizonLine原型链中的方法
+    HorizonLine.prototype = {
+      /** 设置地面 */
+      setSourceDimensions: function() {
+       /*for (var dimension in HorizonLine.dimensions) {
+          if (IS_HIDPI) {
+            if (dimension != 'YPOS') {
+              this.sourceDimensions[dimension] * 2;
+            }
+          } else {
+            this.sourceDimensions[dimension] = HorizonLine.dimensions[dimension];
+          }
+          this.dimensions[dimension] = HorizonLine.dimensions[dimension];
+        }*/
+        this.xPos = [0, this.dimensions.WIDTH]; // 0, 600
+        this.yPos = HorizonLine.dimensions.YPOS;
+        },
+        // 随机地形
+        getRandomType:function() {
+          return Math.random() > this.bumpThreshold ? this.dimensions.WIDTH : 0;
+        },
+
+        draw:function() {
+          // 使用9个参数的 drawImage 方法
+          this.canvasCtx.drawImage(imgSprite,
+              this.sourceXPos[0], this.spritePos.y,
+              this.dimensions.WIDTH, this.dimensions.HEIGHT,
+              this.xPos[0],this.yPos,
+              this.dimensions.WIDTH,this.dimensions.HEIGHT);
+
+          this.canvasCtx.drawImage(imgSprite,
+              this.sourceXPos[1], this.spritePos.y,
+              this.dimensions.WIDTH, this.dimensions.HEIGHT,
+              this.xPos[1],this.yPos,
+              this.dimensions.WIDTH,this.dimensions.HEIGHT);
+        },
+
+        // 更新 x 位置
+        updateXPos:function(pos, increment) {
+          var line1 = pos;
+          var line2 = pos === 0 ? 1 : 0;
+
+          this.xPos[line1] -= increment;
+          this.xPos[line2] = this.xPos[line1] + this.dimensions.WIDTH;
+
+          // 若第一段地面完全移除 cancas 外
+          if (this.xPos[line1] <= -this.dimensions.WIDTH) {
+            //将其移至 canvas 外右侧
+            this.xPos[line1] += this.dimensions.WIDTH * 2;
+            // 同时将第二段路面移到 canvas 内
+            this.xPos[line2] = this.xPos[line1] - this.dimensions.WIDTH;
+            // 选择随机地形
+            this.sourceXPos[line1] = this.getRandomType() + this.spritePos.x;
+          }
+        },
+
+        /*
+        * 更新地面
+        * @param {number} deltaTime
+        * @param {number} speed
+        */
+        update:function(deltaTime, speed) {
+          var increment = Math.floor(speed * (FPS / 1000) * deltaTime);
+          if (this.xPos[0] <= 0) {
+            this.updateXPos(0, increment);
+          } else {
+            this.updateXPos(1, increment);
+          }
+          this.draw();
+        },
+
+        // 将地面复位到起始位置
+        reset:function() {
+          this.xPos[0] = 0;
+          this.xPos[1] = this.dimensions.WIDTH;
+        }
+      };
+
+    //*********************************************************
+    // Cloud
+
+
+    function getRandomNum(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+    function getTimeStamp() {
+      return performance.now();
+    }
+
+
+    /**
+    * Cloud background item.
+    * 障碍物，没有碰撞
+    * spritePos 雪碧图的坐标
+    * containerWidth 容器宽度
+    */
+    function Cloud(canvas, spritePos, containerWidth) {
+      this.canvas = canvas;
+      this.canvasCtx = canvas.getContext('2d');
+      this.spritePos = spritePos;
+      this.containerWidth = containerWidth;
+      this.xPos = containerWidth; // 云初始x坐标在屏幕外
+      this.yPos = 0; // 初始高度
+      this.remove = false; // 是否移动
+      // 云之间的间隔400~100
+      this.cloudGap = getRandomNum(Cloud.config.MIN_CLOUD_GAP,Cloud.config.MAX_CLOUD_GAP);
+      this.init();
+    }
+    /**
+    * 云对象
+    */
+    Cloud.config = {
+      HEIGHT: 13,         //云sprite的高度
+      MAX_CLOUD_GAP: 400, //云之间最大间隙
+      MAX_SKY_LEVEL: 30,  //云的最大高度
+      MIN_CLOUD_GAP: 100, //云之间最小间隙
+      MIN_SKY_LEVEL: 71,  //云最小高度
+      WIDTH: 46,          //云sprite的宽度
+      MAX_CLOUDS: 6,      //最大数量
+      CLOUD_FREQUENCY: 5, //云出现频率
+    }
+    //存储云
+    Cloud.clouds = [];
+
+    //原型链
+    Cloud.prototype = {
+      // 预置
+      init: function() {
+        this.yPos = getRandomNum(Cloud.config.MAX_SKY_LEVEL,Cloud.config.MIN_SKY_LEVEL);
+        this.draw();
+      },
+
+      // Draw the cloud
+      draw: function() {
+        this.canvasCtx.save();
+        var sourceWidth = Cloud.config.WIDTH;
+        var sourceHeight = Cloud.config.HEIGHT;
+
+        this.canvasCtx.drawImage(imgSprite,
+            this.spritePos.x,this.spritePos.y,
+            sourceWidth,sourceHeight,
+            this.xPos,this.yPos,
+            sourceWidth,sourceHeight);
+        this.canvasCtx.restore();
+      },
+
+      // 添加云并控制其运动
+      updateClouds:function(speed) {
+        var numClouds = Cloud.clouds.length;
+        if (numClouds) {
+          for (var i = numClouds - 1; i >= 0; i--) {
+            Cloud.clouds[i].update(speed);
+          }
+
+          var lastCloud = Cloud.clouds[numClouds - 1];
+          // 如果当前存在的云朵数量小于最大云数量，并且云位置大于间隙时，随机添加云
+          if (numClouds < Cloud.config.MAX_CLOUDS && (DEFAULT_WIDTH - lastCloud.xPos) > lastCloud.cloudGap
+          && Cloud.config.CLOUD_FREQUENCY > Math.random()) {
+            this.addCloud();
+          }
+          Cloud.clouds = Cloud.clouds.filter(function(obj) {
+            return !obj.remove;
+          });
+        } else {
+          this.addCloud();
+        }
+      },
+      update:function(speed) {
+        if (!this.remove) {
+          // 向左移动
+          this.xPos -= Math.ceil(speed);
+          this.draw();
+
+          if (!this.isVisible()) {
+            this.remove = true;
+          }
+        }
+      },
+
+      // 判断云是否移出屏幕外
+      isVisible:function() {
+        return this.xPos + Cloud.config.WIDTH > 0;
+      },
+      // 将云添加到数组
+      addCloud:function() {
+        var cloud = new Cloud(this.canvas, spriteDefinition.CLOUD,DEFAULT_WIDTH);
+        Cloud.clouds.push(cloud);
+      }
+    };
+
+    //********************************************************
+    // 昼夜交替
+    NightMode.config = {
+      FADE_SPEED: 0.035,  //淡入淡出速度
+      HEIGHT: 40,         //🌛高度
+      MOON_SPEED: 0.25,   // 月亮移动速度
+      NUM_STARS: 2,       // 星星数量
+      STAR_SIZE: 9,       // 星星宽度
+      STAR_MAX_Y: 70,     // 星星在画布上出现的位置
+      WIDTH: 20,          //半个月亮
+    }
+
+    // 月亮在不同时期有不同的位置
+    NightMode.phases = [140, 120, 100, 60, 40, 20, 0];
+    // 时间记录
+    NightMode.invertTimer = 0;
+    // 是否可以进行昼夜交替
+    NightMode.inverted = false;
+    // 用于控制样式切换
+    NightMode.inverTrigger = false;
+    // 黑夜持续时间
+    NightMode.INVERT_FADE_DURATION = 5000;
+
+    function NightMode(canvas, spritePos, containerWidth) {
+      this.spritePos = spritePos;
+      this.canvas = canvas;
+      this.canvasCtx = canvas.getContext("2d");
+      this.containerWidth = containerWidth;
+      this.xPos = containerWidth - 50;    //月亮的x坐标
+      this.yPos = 30;                     //月亮的y坐标
+      this.currentPhase = 0;
+      this.opacity = 0;
+      this.stars = [];                    //用于存储星星
+      this.drawStars = false;             //是否绘制星星
+      this.placeStars();                  //放置星星
+    }
+
+    NightMode.prototype = {
+      update:function(activated) {
+        //如果夜晚模式处于激活状态且opacity为0时，对月亮周期进行更新
+        if(activated && this.opacity == 0) {
+          this.currentPhase++;
+          if(this.currentPhase >= NightMode.phases.length) {
+            this.currentPhase = 0;
+          }
+        }
+
+        //淡入
+        if(activated && (this.opacity < 1 || this.opacity == 0)) {
+          this.opacity += NightMode.config.FADE_SPEED;
+        } else if (this.opacity > 0) {
+          //淡出
+          this.opacity -= NightMode.config.FADE_SPEED;
+        }
+        // 当opacity大于0时，移动月亮位置
+        if (this.opacity > 0) {
+          this.xPos = this.updateXPos(this.xPos, NightMode.config.MOON_SPEED);
+          //移动星星
+          if (this.drawStars) {
+            for (var i = 0; i < NightMode.config.NUM_STARS; i++) {
+              this.stars[i].x = this.updateXPos(this.stars[i].x,NightMode.config.STAR_SPEED);
+            }
+          }
+          this.draw();
+        } else {
+          this.opacity = 0;
+          this.placeStars();
+        }
+        this.drawStars = true;
+      },
+      updateXPos:function(currentPos, speed) {
+        if (currentPos < -NightMode.config.WIDTH) {
+          currentPos = this.containerWidth;
+        } else {
+          currentPos -= speed;
+        }
+        return currentPos;
+      },
+      draw:function() {
+        // 周期为3时画满月
+        var moonSourceWidth = this.currentPhase == 3 ? NightMode.config.WIDTH * 2 : NightMode.config.WIDTH;
+        var moonSourceHeight = NightMode.config.HEIGHT;
+        //从雪碧图上获取月亮的形状
+        var moonSourceX = this.spritePos.x + NightMode.phases[this.currentPhase];
+        var moonOutputWidth = moonSourceWidth;
+        var starSize = NightMode.config.STAR_SIZE;
+        var starSourceX = spriteDefinition.STAR.x;
+
+        this.canvasCtx.save();
+        this.canvasCtx.globalAlpha = this.opacity;
+
+        if (this.drawStars) {
+          for (var i = 0; i < NightMode.config.NUM_STARS; i++) {
+            this.canvasCtx.drawImage(imgSprite,
+              starSourceX, this.stars[i].sourceY,
+              starSize, starSize,
+              Math.round(this.stars[i].x), this.stars[i].y,
+              NightMode.config.STAR_SIZE, NightMode.config.STAR_SIZE);
+          }
+        }
+        this.canvasCtx.drawImage(imgSprite,
+          moonSourceX, this.spritePos.y,
+          moonSourceWidth, moonSourceHeight,
+          Math.round(this.xPos), this.yPos,
+          moonOutputWidth, NightMode.config.HEIGHT);
+          
+        this.canvasCtx.globalAlpha = 1;
+        this.canvasCtx.restore();
+      },
+      placeStars:function() {
+        //将画布分组
+        var segmentSize = Math.round(this.containerWidth /NightMode.config.NUM_STARS);
+        for (var i = 0; i < NightMode.config.NUM_STARS; i++) {
+          this.stars[i] = {};
+          // 每组星星的随机位置
+          this.stars[i].x = getRandomNum(segmentSize * i, segmentSize * (i + 1));
+          this.stars[i].y = getRandomNum(0, NightMode.config.STAR_MAX_Y);
+          this.stars[i].sourceY = spriteDefinition.STAR.y + NightMode.config.STAR_SIZE * i;
+        }
+      },
+      invert:function(deltaTime) {
+        this.update(NightMode.inverted);
+        // 黑夜时间持续5秒
+        if(NightMode.invertTimer > NightMode.INVERT_FADE_DURATION) {
+          NightMode.invertTimer = 0;
+          NightMode.invertTrigger = false;
+          NightMode.inverted = a.classList.toggle('inverted',NightMode.invertTrigger);
+        } else if(NightMode.invertTimer) {
+          NightMode.invertTimer += deltaTime;
+        } else {
+          // 每500帧触发黑夜，（完整游戏是每700米触发一次黑夜）
+          NightMode.invertTrigger = !(gameFrame % 500);
+          if(NightMode.invertTrigger && NightMode.invertTimer === 0) {
+            NightMode.invertTimer += deltaTime;
+            NightMode.inverted = a.classList.toggle('inverted',NightMode.invertTrigger);
+          }
+        }
+      },
+      reset:function() {
+        this.currentPhase = 0;
+        this.opacity = 0;
+        this.update(false);
+      }
+    }
+
+
+    window.onload = function() {
+      var h = new HorizonLine(c, spriteDefinition.HORIZON);
+      var cloud = new Cloud(c,spriteDefinition.CLOUD,DEFAULT_WIDTH);
+      var night = new NightMode(c,spriteDefinition.MOON,DEFAULT_WIDTH);
+      var startTime = 0;
+      var deltaTime;
+      (function draw(time) {
+        gameFrame++;
+        canvasCtx.clearRect(0,0,600,150);
+        time = time || 0;
+        deltaTime = time - startTime;
+        h.update(deltaTime,3);
+        cloud.updateClouds(0.2);
+        night.invert(deltaTime);
+        startTime = time;
+        window.requestAnimationFrame(draw,c);
+      })();
+    };
+  </script>
+</html>
