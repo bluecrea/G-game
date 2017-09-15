@@ -1,5 +1,6 @@
 # G-game
-Google Dinosaur Game
+##### Google Dinosaur Game
+Chrome 浏览器断网情况下恐龙翻越障碍物游戏研究
 
 ### 五个构造函数：
   #### 1、游戏逻辑管理函数 Runner
