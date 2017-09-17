@@ -51,6 +51,7 @@
     var FPS = 60;
     var gameFrame = 0;
     var DEFAULT_WIDTH = 600;
+    var DEFAULT_HEIGHT = 150;
     var c = document.getElementById('cv');
     var canvasCtx = c.getContext('2d');
     var imgSprite = document.getElementById('img')
@@ -661,6 +662,177 @@
       }
     };
 
+    //****************************T-rex game character.霸王龙游戏角色**************
+    /**
+    * 游戏开始前，霸王龙眨眼睛
+    * 使用计时器timer实现突破切换效果，并且需要知道两张图片切换的时间间隔msPerFrame
+    * 当计时器timer的时间大于切换的时间间隔msPerFrame时，将图片切换到下一张，到达最后一张时又从第一张开始，如此反复
+    */
+    Trex.config = {
+      BLINK_TIMING: 3000,   // 眨眼睛间隔
+      WIDTH: 44,            // 站立时的宽度
+      WIDTH_DUCK: 59,       // 闪避时宽度
+      HEIGHT: 47,           // 站立时高度
+      BOTTOM_PAD: 10,
+      MIN_JUMP_HEIGHT: 30,  // 最小跳起高度
+    };
+    // 状态
+    Trex.status = {
+      CRASHED: 'CRASHED',   // 与障碍物发生碰撞
+      DUCKING: 'DUCKING',   // 闪避
+      JUMPING: 'JUMPING',   // 跳跃
+      RUNNING: 'RUNNING',   // 跑动
+      WAITING: 'WAITING',   // 开始
+    };
+    // 元数据(metadate), 记录各个状态的动画帧和帧率
+    Trex.animFrames = {
+      // 准备状态
+      WAITING: {
+        frames: [44, 0],        // 动画帧x坐标在44和0之间切换(在雪碧图y坐标为0，不用记录)
+        msPerFrame: 1000 / 3,   // 一秒3帧
+      },
+      RUNNING: {
+        frames: [88, 132],
+        msPerFrame: 1000 / 12,
+      },
+      CRASHED: {
+        frames: [220],
+        msPerFrame: 1000 / 60,
+      },
+      JUMPING: {
+        frames: [0],
+        msPerFrame: 1000 / 60,
+      },
+      DUCKING: {
+        frames: [261, 321],
+        msPerFrame: 1000 / 8,
+      },
+    };
+
+    function Trex(canvas, spritePos) {
+      this.canvas = canvas;
+      this.canvasCtx = canvas.getContext('2d');
+      this.spritePos = spritePos;  // 在雪碧图中的位置
+      this.xPos = 0;               // 在画布中的x坐标
+      this.yPos = 0;               // 在画布中的y坐标
+      this.groundYPos = 0;         // 初始化地面高度
+      this.currentFrame = 0;       // 初始化动画帧
+      this.currentAnimFrames = []; // 记录当前状态动画帧
+      this.blinkDelay = 0;         // 眨眼延迟(随机)
+      this.animStartTime = 0;      // 动画开始时间
+      this.timer = 0;              // 计时器
+      this.msPerFrame = 1000 / FPS;// 默认帧率
+      this.config = Trex.config;   // 拷贝一个配置副本方便以后使用
+      this.jumpVelovity = 0;       // 跳跃的初始速度
+
+      this.status = Trex.status.WAITING;  //初始化默认状态为开始状态
+      // 为各种状态建立标识
+      this.jumping = false;   // 角色是否处于跳跃中
+      this.ducking = false;   // 角色是否处于闪避中
+      this.reachedMinHeight = false; // 是否达到最小跳跃高度
+      this.speedDrop = false;        // 是否加速降落
+      this.jumpCount = 0;            // 跳跃次数
+
+      this.init();
+    }
+    //对Trex这个构造函数进行基本的配置，然后在原型链中添加操作方法
+    Trex.prototype = {
+      init:function() {
+        this.groundYPos = DEFAULT_HEIGHT - this.config.HEIGHT - this.config.BOTTOM_PAD;
+        this.yPos = this.groundYPos;
+        // 计算最小起跳高度
+        this.minJumpHeight = this.groundYPos - this.config.MIN_JUMP_HEIGHT;
+        this.draw(0, 0);
+        this.update(0, Trex.status.WAITING);
+      },
+      // 设置眨眼时间
+      setBlinkDelay:function() {
+        this.blinkDelay = Math.ceil(Math.random() * Trex.config.BLINK_TIMING);
+      },
+
+      update:function(deltaTime, opt_status) {
+        this.timer += deltaTime;
+        if (opt_status) {
+          this.status = opt_status;
+          this.currentFrame = 0;
+          this.msPerFrame = Trex.animFrames[opt_status].msPerFrame; // 得到对应状态的帧率
+          this.currentAnimFrames = Trex.animFrames[opt_status].frames; // 得到对应状态动画帧
+
+          if (opt_status) {
+            this.animStartTime = getTimeStamp();
+            this.setBlinkDelay(); // 设置延时
+          }
+        }
+
+        // 计时器超过一帧的运行时间，切换到下一帧
+        if (this.timer >= this.msPerFrame) {
+          this.currentFrame = this.currentFrame === this.currentAnimFrames.length - 1 ? 0 : this.currentFrame + 1;
+          this.timer = 0; //重置计时器
+        }
+
+        // 开始状态
+        if (this.status === Trex.status.WAITING) {
+          // 执行眨眼动作
+          this.blink(getTimeStamp());
+        }
+      },
+      /**
+      * 这段代码实现了两个帧之间的切换，但如果只是单纯地以相同时间间隔来切换两张图片，那么得到的效果是不正确的，会出现频繁眨眼的情况。
+      * 而实际情况是，闭眼只是一瞬间，睁开眼睛的时间则比较长
+      */
+      blink:function(time) {
+        var deltaTime = time - this.animStartTime;
+        if (deltaTime >= this.blinkDelay) {
+          this.draw(this.currentAnimFrames[this.currentFrame], 0);
+          // 0闭眼 1 睁眼
+          if (this.currentFrame === 1) {
+            // 设置新的眨眼间隔时间
+            this.setBlinkDelay();
+            this.animStartTime = time;
+          }
+        }
+      },
+
+      draw:function(x, y) {
+        var sourceX = x;
+        var sourceY = y;
+        var sourceWidth = this.ducking && this.status != Trex.status.CRASHED ? this.config.WIDTH_DUCK : this.config.WIDTH;
+        var sourceHeight = this.config.HEIGHT;
+        sourceX += this.spritePos.x;
+        sourceY += this.spritePos.y;
+
+        this.canvasCtx.drawImage(
+          imgSprite,
+          sourceX, sourceY,
+          sourceWidth, sourceHeight,
+          this.xPos, this.yPos,
+          this.config.WIDTH, this.config.HEIGHT);
+      }
+    };
+/**
+* 眨眼效果
+* 只要计时器没有超过blinkDelay就不绘制新的图片，这样图片就会停留在上一次绘制的状态，恐龙此时是睁着眼睛的
+* 当时间超过了blinkDelay，即执行眨眼的时间到了，这时会绘制this.currentFrame这一帧
+* 如果这一帧是0(闭眼)，由于之前设置了this.timer >= this.msPerFrame时会切换帧，当时间再次超过blinkDelay时，这时就会绘制帧1(睁眼)，我们看到的效果就是眼睛闭上只有一瞬然后立刻睁开了
+* 如果当前帧是1(睁眼)，重新设置blinkDelay，于是在deltaTime没有超过重新设置blinkDelay的情况下，都不会绘制新图片(始终保持在帧1(睁眼))，这样我们看到的效果就是睁眼的时间稍长
+*/
+    window.onload = function () {
+      var h = new HorizonLine(c,spriteDefinition.HORIZON);
+      var trex = new Trex(c,spriteDefinition.TREX);
+      var startTime = 0;
+      var deltaTime;
+      var speed = 3;
+
+      (function draw(time) {
+        time = time || 0;
+        deltaTime = time - startTime;
+        trex.update(deltaTime);
+        startTime = time;
+        requestAnimationFrame(draw,c);
+      })();
+    };
+
+/**
     window.onload = function() {
       var h = new HorizonLine(c,spriteDefinition.HORIZON);
           var cloud = new Cloud(c,spriteDefinition.CLOUD,DEFAULT_WIDTH);
@@ -685,5 +857,6 @@
               window.requestAnimationFrame(draw,c);
         })();
     };
+*/
 </script>
 </html>
